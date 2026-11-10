@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SKU Vendedor</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#00539b">
+<style>
+body{font-family:Arial,sans-serif;max-width:700px;margin:auto;padding:15px;background:#f5f7fa;color:#1f2937}
+h1{text-align:center;color:#00539b;margin-bottom:8px}
+input{width:100%;padding:14px;font-size:20px;border:1px solid #ccc;border-radius:8px;box-sizing:border-box}
+.tarjeta{background:#fff;margin-top:15px;padding:15px;border-radius:12px;box-shadow:0 2px 6px rgba(0,0,0,.1)}
+.dato{margin:8px 0}.etiqueta{font-weight:bold;color:#00539b}
+.estado{text-align:center;color:#666;margin-bottom:10px;font-size:14px}
+.error{background:#fff3f3;color:#c00000;padding:12px;border-radius:8px;margin-top:15px}
+.resumen{display:flex;justify-content:space-between;align-items:center;gap:10px;background:#eef6ff;border:1px solid #c8e0f8;border-radius:9px;padding:11px 12px;margin:12px 0;font-weight:bold}
+.contador{font-size:20px;color:#00539b}
+.lista-skus{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:8px}
+.sku-item{display:flex;align-items:center;gap:9px;background:#eaf4ff;border:1px solid #b7d9ff;padding:10px;border-radius:9px;cursor:pointer;user-select:none}
+.sku-item input{width:22px;height:22px;margin:0;flex:0 0 auto}
+.sku-codigo{font-weight:bold;font-size:17px}.sku-valor{margin-left:auto;font-weight:bold}
+.sku-negativo{background:#fff3e8;border-color:#f2a65a;color:#8a3d00}.sku-negativo .sku-valor{color:#c00000}
+.sku-colocado{opacity:.55;text-decoration:line-through;background:#e9f7ee;border-color:#9cd3ac}
+.nota{font-size:12px;color:#666;margin-top:10px;line-height:1.35}
+@media(max-width:480px){.lista-skus{grid-template-columns:1fr}.resumen{align-items:flex-start;flex-direction:column}}
+</style>
+</head>
+<body>
+<h1>SKU Vendedor</h1>
+<div class="estado" id="estado">Cargando información...</div>
+<input id="cliente" placeholder="Número de cliente" autocomplete="off" inputmode="numeric">
+<div id="resultado"></div>
+<script>
+let datos={};
+const CLAVE='skuColocadosHoy';
+const HOY=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
+function leerMarcas(){
+  try{
+    const obj=JSON.parse(localStorage.getItem(CLAVE)||'{}');
+    if(obj.fecha!==HOY()) return {fecha:HOY(),items:{}};
+    return obj;
+  }catch(e){return {fecha:HOY(),items:{}};}
+}
+function guardarMarcas(m){localStorage.setItem(CLAVE,JSON.stringify(m));}
+function totalHoy(){return Object.values(leerMarcas().items).filter(Boolean).length;}
+function llave(cliente,sku){return cliente+'|'+sku;}
+function mapaNegativos(info){
+  const m={};
+  (info.skusDetalle||[]).forEach(x=>{if(x&&x.sku!==undefined)m[String(x.sku)]=Number(x.valor);});
+  return m;
+}
+function render(numero){
+  const info=datos[numero], contenedor=document.getElementById('resultado');
+  if(!numero){contenedor.innerHTML='';return;}
+  if(!info){contenedor.innerHTML='<div class="error">Cliente no encontrado</div>';return;}
+  const negativos=mapaNegativos(info), marcas=leerMarcas();
+  let skus='';
+  if(info.skus&&info.skus.length){
+    skus='<div class="lista-skus">'+info.skus.map(s=>{
+      const sku=String(s), valor=negativos[sku], neg=Number.isFinite(valor)&&valor<0;
+      const checked=!!marcas.items[llave(numero,sku)];
+      return `<label class="sku-item ${neg?'sku-negativo':''} ${checked?'sku-colocado':''}" data-sku="${sku}">
+        <input type="checkbox" class="sku-check" data-cliente="${numero}" data-sku="${sku}" ${checked?'checked':''}>
+        <span class="sku-codigo">${sku}</span>
+        ${neg?`<span class="sku-valor">${valor}</span>`:''}
+      </label>`;
+    }).join('')+'</div>';
+  }else{skus='<p>Sin SKU faltantes</p>';}
+  contenedor.innerHTML=`<div class="tarjeta">
+    <div class="dato"><span class="etiqueta">Cliente:</span> ${numero}</div>
+    <div class="dato"><span class="etiqueta">Nombre:</span> ${info.nombre||''}</div>
+    <div class="dato"><span class="etiqueta">Ruta:</span> ${info.ruta||''}</div>
+    <div class="dato"><span class="etiqueta">Día:</span> ${info.dia||''}</div>
+    <div class="dato"><span class="etiqueta">Segmento:</span> ${info.segmento||''}</div>
+    <div class="resumen"><span>SKU marcados como colocados hoy</span><span class="contador" id="contadorHoy">${totalHoy()}</span></div>
+    <div class="dato"><span class="etiqueta">SKU Faltantes:</span></div>${skus}
+    <div class="nota">Los SKU en naranja muestran el valor negativo de origen. Las marcas son seguimiento local del vendedor y no sustituyen la venta confirmada del reporte.</div>
+  </div>`;
+  document.querySelectorAll('.sku-check').forEach(ch=>ch.addEventListener('change',function(){
+    const m=leerMarcas(), k=llave(this.dataset.cliente,this.dataset.sku);
+    if(this.checked)m.items[k]=true;else delete m.items[k];
+    guardarMarcas(m);
+    this.closest('.sku-item').classList.toggle('sku-colocado',this.checked);
+    const c=document.getElementById('contadorHoy');if(c)c.textContent=totalHoy();
+  }));
+}
+fetch('clientes.json',{cache:'no-store'}).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(json=>{
+  datos=json;document.getElementById('estado').textContent='Datos cargados correctamente';
+}).catch(()=>{document.getElementById('estado').textContent='Modo sin conexión';});
+document.getElementById('cliente').addEventListener('input',function(){render(this.value.trim());});
+if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.log));}
+</script>
+</body>
+</html>
